@@ -1,0 +1,13 @@
+# Office lock files
+~$*
+
+# Python
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.venv/
+
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store
