@@ -1,0 +1,38 @@
+name: pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pytest
+
+      - name: Run tests
+        run: pytest -v
+
+      - name: Run the pipeline end to end
+        run: python analysis.py
+
+      # Only the CSV is checked. matplotlib PNGs are not byte-reproducible
+      # across versions and platforms, so diffing figures/ would fail for
+      # reasons that have nothing to do with the data.
+      - name: Check the committed dataset is up to date
+        run: |
+          if ! git diff --quiet -- data/analysis_dataset.csv; then
+            echo "::error::data/analysis_dataset.csv is stale — re-run analysis.py and commit"
+            git diff --stat -- data/analysis_dataset.csv
+            exit 1
+          fi
+          echo "analysis_dataset.csv matches the pipeline output"
