@@ -25,6 +25,11 @@ jobs:
       - name: Run the pipeline end to end
         run: python analysis.py
 
+      # Runs against the committed panel, so CI needs no network access. Use
+      # `python fetch_worldbank.py --refresh` locally to pull new data.
+      - name: Run the panel analysis
+        run: python panel_analysis.py
+
       # Only the CSV is checked. matplotlib PNGs are not byte-reproducible
       # across versions and platforms, so diffing figures/ would fail for
       # reasons that have nothing to do with the data.

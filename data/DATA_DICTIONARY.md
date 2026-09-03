@@ -113,3 +113,68 @@ the pipeline.
 | `Population` | `population` |
 | `GDP_per_capita` | `gdp_usd` *(renamed — it is not per capita)* |
 | `Unemployee` | `unemployment_rate` |
+
+---
+
+## `worldbank_panel.csv` (generated)
+
+Written by `fetch_worldbank.py` straight from the [World Bank API](https://api.worldbank.org/v2/).
+Comma-delimited, period decimal separator, UTF-8. **Do not edit by hand** — it is
+overwritten on every run. Raw API responses are cached under
+`data/worldbank_cache/` (not committed).
+
+**Coverage:** all 48 Sub-Saharan African economies × 2000–2022 = **1,104 rows**.
+**Grain:** one row per country-year. Key: (`iso3`, `year`).
+
+This file replaces the hand-collected three-country data for anything
+quantitative. Where the two disagree, this one is right: it comes from the
+source, and the fetch asserts the API returned a complete single page rather
+than silently analysing page 1 of N.
+
+### Keys and attributes
+
+| Column | Type | Nulls | Range / values | Notes |
+|---|---|---|---|---|
+| `iso3` | text | 0 | 48 distinct | ISO 3166-1 alpha-3 |
+| `country` | text | 0 | 48 distinct | World Bank short name |
+| `income_level` | text | 0 | 4 values | Low (21), Lower middle (20), Upper middle (6), High (1 — Seychelles) |
+| `year` | integer | 0 | 2000–2022 | Calendar year |
+
+### HIV indicators
+
+| Column | Unit | Nulls | Range | Source indicator | Notes |
+|---|---|---|---|---|---|
+| `hiv_prevalence_pct` | % of ages 15–49 | 92 | 0.1–29.4 | `SH.DYN.AIDS.ZS` | Adult prevalence. This is the series the hand-collected file got wrong for South Africa: the API gives 17.9–18.4% for 2020–2022 against 4.1–4.7% in the spreadsheet. |
+| `art_coverage_pct` | % of people with HIV | 92 | 0–93 | `SH.HIV.ARTC.ZS` | Antiretroviral therapy coverage. Most complete and most reliable series here. |
+| `pmtct_coverage_pct` | % of pregnant women with HIV | 161 | 0–100 | `SH.HIV.PMTC.ZS` | Prophylaxis to prevent mother-to-child transmission. Sparsest of the HIV series. |
+| `aids_deaths` | people | 92 | 100–280,000 | `SH.DYN.AIDS.DH` | UNAIDS estimate. Rounded at source, which is why the minimum is a round 100. |
+| `new_infections` | people | 115 | 100–530,000 | `SH.HIV.INCD.TL` | All ages. Also rounded at source. |
+| `women_share_of_plhiv_pct` | % | 23 | 30.5–72.7 | `SH.DYN.AIDS.FE.ZS` | Women's share of those aged 15+ living with HIV. Not a prevalence rate — a share of cases. |
+
+### Economic and demographic
+
+| Column | Unit | Nulls | Range | Source indicator | Notes |
+|---|---|---|---|---|---|
+| `population` | people | 0 | 81,130–223,200,000 | `SP.POP.TOTL` | Complete for every country-year. |
+| `gdp_per_capita_usd` | current US$ | 26 | 110–19,140 | `NY.GDP.PCAP.CD` | **Genuinely per capita**, unlike the `GDP_per_capita` column in the hand-collected file, which held total GDP. |
+| `unemployment_pct` | % of labour force | 23 | 0.3–36.5 | `SL.UEM.TOTL.ZS` | Modelled ILO estimate, not a national survey figure. Compare across countries with care. |
+
+### Derived
+
+| Column | Unit | Nulls | Range | Formula | Notes |
+|---|---|---|---|---|---|
+| `aids_deaths_per_100k` | deaths per 100k | 92 | 2.7–1,261 | `aids_deaths / population × 100000` | The normalisation the original analysis lacked. Without it, South Africa's 25x larger population makes every absolute comparison meaningless. |
+| `new_infections_per_100k` | infections per 100k | 115 | 2.8–2,016 | `new_infections / population × 100000` | Same reasoning. |
+
+### Analysis subset
+
+`panel_analysis.py` restricts to `year >= 2005` and to rows with all four of
+`art_coverage_pct`, `gdp_per_capita_usd`, `hiv_prevalence_pct` and
+`aids_deaths_per_100k`. That leaves **771 country-years across 44 countries** —
+the sample every regression in the README is fitted on. Years before 2005 are
+dropped because ART coverage is at or near zero for almost every country, so
+they carry no signal about treatment scale-up.
+
+`log_deaths` is computed as `log(clip(aids_deaths_per_100k, lower=0.01))`. The
+floor matters: a few country-years round to zero deaths per 100k, and `log(0)`
+would drop them from every model without warning.

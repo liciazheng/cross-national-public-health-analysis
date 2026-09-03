@@ -14,11 +14,11 @@ every adjustment is visible and reproducible.
 
 from pathlib import Path
 
-import matplotlib
-matplotlib.use("Agg")
-
 import matplotlib.pyplot as plt
 import pandas as pd
+
+import viz
+from viz import BASELINE, GRIDLINE, INK, INK_MUTED, INK_SECONDARY, SURFACE
 
 DATA = Path(__file__).parent / "data"
 FIGURES = Path(__file__).parent / "figures"
@@ -26,20 +26,9 @@ FIGURES = Path(__file__).parent / "figures"
 COUNTRIES = ["South Africa", "Kenya", "Botswana"]
 YEARS = (2007, 2016)
 
-# Categorical slots 1-3 of the reference palette, assigned by entity and never
-# reordered: a country keeps its hue in every figure.
-COLOR = {
-    "South Africa": "#2a78d6",  # blue
-    "Kenya": "#eb6834",         # orange
-    "Botswana": "#1baf7a",      # aqua
-}
-
-SURFACE = "#fcfcfb"
-INK = "#0b0b0b"
-INK_SECONDARY = "#52514e"
-INK_MUTED = "#898781"
-GRIDLINE = "#e1e0d9"
-BASELINE = "#c3c2b7"
+# Country colours come from the shared palette in viz.py, so the same
+# country reads the same in every figure across both analyses.
+COLOR = viz.FOCUS
 
 
 # --------------------------------------------------------------------------
@@ -294,46 +283,6 @@ def analyse(df):
 # Plot
 # --------------------------------------------------------------------------
 
-def _style():
-    plt.rcParams.update({
-        "font.family": ["Segoe UI", "DejaVu Sans", "sans-serif"],
-        "figure.facecolor": SURFACE,
-        "axes.facecolor": SURFACE,
-        "savefig.facecolor": SURFACE,
-        "text.color": INK,
-        "axes.labelcolor": INK_SECONDARY,
-        "xtick.color": INK_MUTED,
-        "ytick.color": INK_MUTED,
-        "axes.titlesize": 14,
-        "axes.titleweight": "bold",
-        "axes.titlecolor": INK,
-        "axes.titlelocation": "left",
-        "axes.titlepad": 14,
-        "font.size": 10,
-        "figure.dpi": 140,
-    })
-
-
-def _frame(ax):
-    """Hairline, solid, recessive chrome. No dashes."""
-    ax.grid(axis="y", color=GRIDLINE, linewidth=0.8, solid_capstyle="butt")
-    ax.set_axisbelow(True)
-    for side in ("top", "right"):
-        ax.spines[side].set_visible(False)
-    for side in ("left", "bottom"):
-        ax.spines[side].set_color(BASELINE)
-        ax.spines[side].set_linewidth(0.8)
-    ax.tick_params(length=0)
-
-
-def _titles(ax, title, subtitle):
-    """Title above subtitle, both flush left, with room for neither to collide."""
-    ax.set_title(title, pad=34)
-    if subtitle:
-        ax.text(0, 1.015, subtitle, transform=ax.transAxes, fontsize=10,
-                color=INK_SECONDARY, va="bottom")
-
-
 def _endpoint_labels(ax, df, col, fmt="{:.0f}"):
     """
     Direct-label the last point of each series. Label text stays in ink — the
@@ -361,10 +310,10 @@ def _lines(df, col, title, subtitle, ylabel, filename, countries=None, fmt="{:.0
                 marker="o", markersize=4.5, markeredgecolor=SURFACE,
                 markeredgewidth=1.5, label=country, clip_on=False, zorder=3)
 
-    _frame(ax)
+    viz.frame(ax)
     _endpoint_labels(ax, df[df["Country"].isin(countries)], col, fmt)
 
-    _titles(ax, title, subtitle)
+    viz.titles(ax, title, subtitle)
     ax.set_ylabel(ylabel)
     ax.set_xlim(YEARS[0] - 0.2, YEARS[1] + 2.6)
     ax.set_xticks(range(YEARS[0], YEARS[1] + 1))
@@ -391,7 +340,7 @@ def _small_multiples(df, col, title, subtitle, filename):
         ax.plot(rows["Year"], rows[col], color=COLOR[country], linewidth=2,
                 marker="o", markersize=4, markeredgecolor=SURFACE,
                 markeredgewidth=1.5, clip_on=False, zorder=3)
-        _frame(ax)
+        viz.frame(ax)
 
         a, b = rows[col].iloc[0], rows[col].iloc[-1]
         ax.set_title(country, fontsize=11, pad=26)
@@ -425,9 +374,9 @@ def _scatter(df, x, y, title, subtitle, xlabel, ylabel, filename):
         ax.annotate(f"  {country}", xy=(last[x], last[y]), xytext=(8, 0),
                     textcoords="offset points", va="center", fontsize=9, color=INK_SECONDARY)
 
-    _frame(ax)
+    viz.frame(ax)
     ax.grid(axis="x", color=GRIDLINE, linewidth=0.8)
-    _titles(ax, title, subtitle)
+    viz.titles(ax, title, subtitle)
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
     ax.xaxis.set_major_formatter(lambda v, _: f"${v:,.0f}")
@@ -442,7 +391,7 @@ def _scatter(df, x, y, title, subtitle, xlabel, ylabel, filename):
 
 
 def plot_all(df):
-    _style()
+    viz.style()
     FIGURES.mkdir(exist_ok=True)
     written = [
         _lines(df, "art_coverage",
