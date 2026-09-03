@@ -11,3 +11,7 @@ __pycache__/
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# Raw World Bank API responses — regenerate with `python fetch_worldbank.py`.
+# The derived panel (data/worldbank_panel.csv) is committed instead.
+data/worldbank_cache/

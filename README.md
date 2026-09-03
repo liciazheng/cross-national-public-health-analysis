@@ -1,140 +1,147 @@
 # Cross-National Public Health Data Analysis — HIV in Sub-Saharan Africa
 
-[![pipeline](https://github.com/liciazheng/cross-national-public-health-analysis/actions/workflows/ci.yml/badge.svg)](https://github.com/liciazheng/cross-national-public-health-analysis/actions/workflows/ci.yml)
+Does economic development explain how well a country controls its HIV epidemic?
 
-A comparative analysis of HIV prevalence, treatment coverage, and prevention-programme effectiveness in **South Africa, Kenya, and Botswana** from **2007 to 2016**, joined against World Bank economic indicators.
-
-The whole pipeline is one script: it joins the raw extracts, runs data-quality checks against them, writes a cleaned dataset, and regenerates every figure below.
+This started as a three-country comparison built on a hand-collected spreadsheet. Auditing that spreadsheet in code turned up enough errors that the honest move was to go to the primary source and redo the analysis at scale. Both halves are here, because the first half is the more useful lesson.
 
 ```bash
 pip install -r requirements.txt
-python analysis.py
+
+python analysis.py          # part 1: three countries, and the data-quality audit
+python fetch_worldbank.py   # pull 48 countries from the World Bank API
+python panel_analysis.py    # part 2: the panel, with regressions
 ```
 
-## Questions
+## Part 1 — three countries, and what auditing the data found
 
-1. How did HIV prevalence change in these three countries between 2007 and 2016?
-2. How far did antiretroviral therapy (ART) coverage expand?
-3. How successful were Prevention of Mother-to-Child Transmission (PMTCT) programmes?
-4. Does economic development predict HIV outcomes?
+South Africa, Kenya and Botswana, 2007–2016, from a spreadsheet assembled by hand. [`analysis.py`](analysis.py) joins the two raw extracts in code, runs eight data-quality checks, writes a cleaned dataset, and draws eight figures.
 
-Sub-Saharan Africa accounts for roughly 70% of global HIV cases. These three countries span a wide range of both epidemic scale and national income, which makes them a useful comparison set: Botswana is small and relatively wealthy with a severe epidemic, Kenya is large and low-income with a milder one, South Africa is large and carries the biggest absolute burden in the world.
+The checks report **14 errors and 4 warnings**. The substantive ones:
 
-## Findings
+| Problem | Check that catches it | Handling |
+|---|---|---|
+| `GDP_per_capita` actually holds **total GDP** (South Africa 2007 = `3.33E+11` = $333bn) | magnitude vs population | renamed `gdp_usd`, true per-capita derived |
+| `People living with HIV` for Kenya and Botswana is South Africa's **2016 value (6,900,000) filled down** across all ten years | constant-series detection | dropped for both |
+| The same column gives Botswana 6.9m people with HIV against a **population of 2.2m** | value exceeds population | dropped |
+| South Africa's `HIV_Prevalence_Female` is a **verbatim copy of `PMTCT_Coverage`** (49, 63, 79, 93, 100 …) | duplicate-column detection | dropped |
+| `prevalence_total` sits outside the female/male range in **30/30 rows** | range coherence | sex columns dropped |
+| South Africa's `prevalence_total` reads 4.1–4.7% | manual cross-reference | excluded — the API puts it at **17.9–18.4%** |
+| The hand-built `joined_dataset.csv` disagrees with the source extract on `people_living_with_hiv` in **30/30 rows** | cross-check against the scripted join | scripted join is authoritative |
+| `mtct_rate` missing for 2007–2009 | null report | chart starts at 2010 |
 
-### Treatment coverage expanded dramatically everywhere
+Every one of these is the signature of a manual Excel workflow — fill-down, paste into the wrong column, a header carried over from a different indicator. Doing the join in code is what made them visible. The last two are the reason for Part 2: if a headline indicator is off by a factor of four, the conclusions built on it are not worth defending.
 
-ART coverage rose from 10% to 60% in South Africa, 13% to 74% in Kenya, and 29% to 76% in Botswana. It is the clearest signal in the dataset.
+Within the series that do survive, the trends are real: ART coverage rose from 10% to 60% (South Africa), 13% to 74% (Kenya) and 29% to 76% (Botswana), and population-normalised AIDS mortality fell 69%, 59% and 78%.
 
-![ART coverage trends](figures/art-coverage-trends.png)
+## Part 2 — all of Sub-Saharan Africa
 
-### Treatment tracks mortality almost perfectly
+[`fetch_worldbank.py`](fetch_worldbank.py) pulls nine indicators for all **48** Sub-Saharan African economies, 2000–2022, straight from the World Bank API, caching every response so a rerun is free and traceable. [`panel_analysis.py`](panel_analysis.py) analyses the **771 country-years** across the **44 countries** that have all four modelled measures, from 2005 (before which ART barely existed).
 
-Within each country, ART coverage and AIDS deaths per 100,000 move together with a correlation of **r = −0.98 to −1.00**. Population-normalised mortality fell 69% in South Africa, 59% in Kenya, and 78% in Botswana.
+With three countries the income question was unanswerable. With 44 it splits into two questions that have different answers.
 
-![AIDS deaths per 100,000](figures/aids-deaths-per-100k.png)
+### Treatment scale-up was regional, not exceptional
 
-A near-perfect within-country correlation over ten years is not proof of causation — both series trend monotonically, and plenty of other things improved over the same decade. But the direction and consistency across three very different health systems is what the ART literature would predict.
+![ART coverage across Sub-Saharan Africa](figures/panel-art-coverage-all.png)
 
-### Income does **not** predict treatment reach
+Regional mean ART coverage reached **68%** by 2022, ranging from 18% to 93%. The three countries originally chosen were not outliers — they sit inside a region-wide scale-up. Their 2022 figures are higher than the 2016 endpoints above: South Africa 78%, Kenya 85%, Botswana 93%.
 
-This is the question the original analysis could not answer, and the pipeline answers it directly:
+### Does income predict treatment coverage? It depends which comparison you mean
 
-| Relationship | Pooled correlation (n = 30) |
-|---|---|
-| GDP per capita ~ ART coverage | **r = +0.12** |
-| ART coverage ~ AIDS deaths per 100k | r = −0.59 |
-| GDP per capita ~ AIDS deaths per 100k | r = +0.62 |
+Outcome is ART coverage in percentage points; the coefficient is on a one-log-unit rise in GDP per capita. Standard errors clustered by country, n = 771 throughout.
 
-Income is essentially uncorrelated with treatment reach. Kenya makes the point on its own — its GDP per capita barely moved off $840–$1,554 while ART coverage went from 13% to 74%, which is why its trail below is almost vertical.
+| Specification | Coefficient | 95% CI | p | R² |
+|---|---|---|---|---|
+| Naive | **+8.08** pp | [+3.15, +13.00] | 0.001 | 0.075 |
+| + HIV prevalence | **+6.21** pp | [+1.31, +11.11] | 0.013 | 0.098 |
+| + year fixed effects | +1.05 pp | [−3.02, +5.13] | 0.613 | 0.740 |
+| + country fixed effects | **+9.38** pp | [+2.89, +15.86] | 0.005 | 0.930 |
 
-![ART coverage vs GDP per capita](figures/art-coverage-vs-gdp.png)
+![Income coefficient across specifications](figures/panel-income-coefficient.png)
 
-The **positive** correlation between income and mortality (r = +0.62) is a between-country artifact, not a finding: Botswana and South Africa are both richer than Kenya *and* both carry far more severe epidemics. With only three countries, national income is hopelessly confounded with epidemic severity, so that coefficient should be read as a warning about the sample size rather than a result.
+Read down the table:
 
-### PMTCT programmes converged at a high level
+- The **raw association is positive and significant.** Richer countries do have higher coverage — group means run 63% (low income), 72% (lower middle), 76% (upper middle).
+- It **survives** controlling for epidemic size.
+- It **vanishes once the year is accounted for** (+1.05 pp, p = 0.61). Within any given year, income does not distinguish one country's coverage from another's. The apparent gradient was mostly the global scale-up: everyone improved, and pooling years mistook time for income.
+- It **returns, larger, inside countries** (+9.38 pp). When a country's own income rises, its own coverage rises with it.
 
-By 2016 all three countries reached 87–93% coverage, from very different starting points (South Africa 49%, Kenya 57%, Botswana 78%). Reported mother-to-child transmission fell to 4% in South Africa and 5% in Botswana — though Kenya remained at 9% despite 92% coverage, which the coverage figure alone does not explain.
+The between/within decomposition says the same thing more directly: across country means r = **+0.255**, but within countries over time r = **+0.583**.
 
-### Prevalence fell slowly
+So: *income does not explain why one country outperforms another; it does track a country's own trajectory.* The original three-country conclusion — "wealth doesn't determine outcomes" — turns out to be right about the between-country comparison and wrong as a general claim, which three countries could never have distinguished.
 
-Kenya 6.0% → 4.5%, Botswana 23.6% → 21.4%. Prevalence is a stock, not a flow: as treatment keeps people alive longer, prevalence can stay high even while new infections and deaths fall. It is the least informative of the four indicators here, which is worth saying plainly since it was the headline measure in the original framing.
+![ART coverage by income group](figures/panel-art-by-income.png)
+
+The group means rise with income, but the groups overlap almost completely — low-income countries reach 90% and upper-middle-income ones sit at 54%. The mean is a bad summary of this picture, which is why the dots are drawn rather than bars.
+
+### Does coverage predict mortality? Yes, once you control for the epidemic
+
+Outcome is log AIDS deaths per 100,000; the coefficient is on one percentage point of ART coverage.
+
+| Specification | Coefficient | 95% CI | p | R² |
+|---|---|---|---|---|
+| ART coverage only | −0.005 | [−0.014, +0.004] | 0.296 | 0.010 |
+| + prevalence + income | **−0.014** | [−0.020, −0.009] | <0.001 | 0.599 |
+| + year & country fixed effects | **−0.025** | [−0.032, −0.017] | <0.001 | 0.985 |
+
+The naive specification finds nothing, and the reason is visible in the data:
+
+![The raw comparison is confounded](figures/panel-art-vs-mortality.png)
+
+In the 2022 cross-section, ART coverage and mortality are correlated **+0.30** — the wrong sign. Bubble area is HIV prevalence, and the large bubbles sit high on both axes: the countries that scaled treatment up hardest are the ones with the worst epidemics. Coverage correlates with prevalence at +0.46, and prevalence with mortality at +0.75.
+
+Hold prevalence and country fixed and the relationship inverts to **−0.025 per percentage point** — roughly **2.4% lower mortality per point of coverage**, or about 22% lower for a 10-point gain. This is the clearest result in the project, and it is one the three-country dataset could not have produced.
+
+**These are associations, not causal estimates.** Fixed effects absorb anything constant within a country and the common time trend, but nothing here handles reverse causality (worsening epidemics attract funding) or omitted time-varying confounders such as donor programmes and health-system capacity.
 
 ## Figures
 
-All regenerated by `analysis.py`.
+Part 1, three countries ([`analysis.py`](analysis.py)):
 
 | | |
 |---|---|
-| [ART coverage trends](figures/art-coverage-trends.png) | [PMTCT coverage trends](figures/pmtct-coverage-trends.png) |
-| [AIDS deaths (absolute, small multiples)](figures/aids-deaths.png) | [AIDS deaths per 100,000](figures/aids-deaths-per-100k.png) |
-| [Adult HIV prevalence](figures/hiv-prevalence-trends.png) | [Mother-to-child transmission rate](figures/mtct-rate.png) |
+| [ART coverage](figures/art-coverage-trends.png) | [PMTCT coverage](figures/pmtct-coverage-trends.png) |
+| [AIDS deaths, small multiples](figures/aids-deaths.png) | [AIDS deaths per 100k](figures/aids-deaths-per-100k.png) |
+| [Adult prevalence](figures/hiv-prevalence-trends.png) | [Mother-to-child transmission](figures/mtct-rate.png) |
 | [GDP per capita](figures/gdp-per-capita.png) | [ART coverage vs GDP per capita](figures/art-coverage-vs-gdp.png) |
+
+Part 2, the panel ([`panel_analysis.py`](panel_analysis.py)):
+
+| | |
+|---|---|
+| [ART coverage, 44 countries](figures/panel-art-coverage-all.png) | [Coverage by income group](figures/panel-art-by-income.png) |
+| [Income coefficient by specification](figures/panel-income-coefficient.png) | [Coverage vs mortality, confounded](figures/panel-art-vs-mortality.png) |
 
 ## Data
 
-**Source:** [World Bank World Development Indicators](https://databank.worldbank.org/source/world-development-indicators). Ten years × three countries = 30 observations.
-
 | File | Role |
 |---|---|
-| [`data/hiv_indicators.csv`](data/hiv_indicators.csv) | Raw — prevalence, ART, PMTCT, people living with HIV, AIDS deaths, women 15+ with HIV, MTCT rate |
-| [`data/economic_indicators.csv`](data/economic_indicators.csv) | Raw — population, GDP, unemployment |
-| [`data/joined_dataset.csv`](data/joined_dataset.csv) | The original hand-built join, kept for comparison |
-| [`data/analysis_dataset.csv`](data/analysis_dataset.csv) | **Generated** — the cleaned, joined, derived dataset the figures are built from |
+| [`data/hiv_indicators.csv`](data/hiv_indicators.csv) | Raw, hand-collected — kept exactly as it was |
+| [`data/economic_indicators.csv`](data/economic_indicators.csv) | Raw, hand-collected |
+| [`data/joined_dataset.csv`](data/joined_dataset.csv) | The original hand-built join, kept for the cross-check |
+| [`data/analysis_dataset.csv`](data/analysis_dataset.csv) | **Generated** by `analysis.py` — cleaned three-country data |
+| [`data/worldbank_panel.csv`](data/worldbank_panel.csv) | **Generated** by `fetch_worldbank.py` — 48 countries × 23 years |
+| `data/worldbank_cache/` | **Generated, not committed** — raw API responses; rerun `fetch_worldbank.py` to rebuild |
+| [`data/DATA_DICTIONARY.md`](data/DATA_DICTIONARY.md) | Every column: units, source indicator, reliability |
 | `data/hiv_table*.xlsx` | Excel working files from the original pass |
 
-Every column — units, ranges, null counts, and why each dropped column was dropped — is documented in [`data/DATA_DICTIONARY.md`](data/DATA_DICTIONARY.md).
-
-The raw CSVs are European Excel exports — semicolon-delimited, comma decimal separator:
+The hand-collected CSVs are European Excel exports — semicolon-delimited, comma decimal separator:
 
 ```python
 pd.read_csv("data/hiv_indicators.csv", sep=";", decimal=",")
 ```
 
-They are left exactly as collected. Every correction happens in `analysis.py`, so each one is visible, justified, and reproducible rather than baked into a file.
+They are left exactly as collected. Every correction happens in code, so each one is visible, justified and reproducible rather than baked into a file.
 
-## Data quality
-
-The source extracts contain real errors. Rather than fix them silently, `analysis.py` runs eight checks on every run and prints what it finds — **14 errors and 4 warnings** as of the current data. The substantive ones:
-
-| Problem | Check that catches it | Handling |
-|---|---|---|
-| `GDP_per_capita` actually holds **total GDP** (South Africa 2007 = `3.33E+11` = $333bn) | magnitude vs population | renamed `gdp_usd`; true `gdp_per_capita_usd` derived |
-| `People living with HIV` for Kenya and Botswana is South Africa's **2016 value (6,900,000) filled down** across all ten years | constant-series detection | dropped for both countries |
-| That same column gives Botswana 6.9m people with HIV against a **population of 2.2m** | value exceeds population | dropped |
-| South Africa's `HIV_Prevalence_Female` is a **verbatim copy of `PMTCT_Coverage`** (49, 63, 79, 93, 100 …) | duplicate-column detection | column dropped from the analysis set |
-| `prevalence_total` sits outside the female/male range in **30/30 rows** — the three columns are not the same indicator | range coherence | female/male dropped; see note below |
-| South Africa's `prevalence_total` (4.1–4.7%) is far below published adult prevalence for the period (~18%) | manual cross-reference | South Africa excluded from the prevalence figure |
-| The hand-built `joined_dataset.csv` disagrees with the source extract on `people_living_with_hiv` in **30/30 rows** | cross-check against the scripted join | scripted join is authoritative |
-| `mtct_rate` missing for 2007–2009 | null report | chart starts at 2010 |
-
-On the sex-disaggregated columns: for Kenya and Botswana the female/male pairs are internally plausible (Kenya 3.6%/1.3%, Botswana 12.8%/4.5%) but sit *below* the total rather than bracketing it. That pattern is consistent with them being **youth (15–24) prevalence** against an **adult (15–49) total** — different indicators under misleading headers. Since that is inference rather than documentation, they are excluded rather than relabelled.
-
-Every error above is the signature of a manual Excel workflow — fill-down, copy-paste into the wrong column, a header carried over from a different indicator. Doing the join in code is what makes them visible.
-
-## Tests
-
-```bash
-pip install -r requirements.txt pytest
-pytest
-```
-
-23 tests. The ones that matter are on the validator: **a data-quality check that is never tested is a check you find out about when it fails to fire**, so each of the eight is exercised twice — against synthetic data engineered to trip it, and against clean data to confirm it stays quiet.
-
-- Every check fires on a planted fault: a filled-down constant series, a column copied over its neighbour, cases exceeding population, total GDP posing as per capita, incoherent sex-disaggregated prevalence, out-of-range coverage, and nulls.
-- On the real extracts, all four known errors are asserted to be caught.
-- `join()` raises rather than silently dropping rows when the keys don't match.
-- Cleaning nulls the unreliable cells without inventing values, keeps South Africa's real `people_living_with_hiv` series, drops no rows, and derives the per-capita columns correctly.
-- The headline numbers in this README are pinned: ART coverage endpoints per country, the r = +0.12 income/treatment correlation, and r < −0.95 within every country for treatment against mortality. If the data or the pipeline changes, the claims above break loudly.
-- All eight figures render, into a temp directory so the test never touches `figures/`.
+**Source:** [World Bank World Development Indicators](https://databank.worldbank.org/source/world-development-indicators). HIV series originate with UNAIDS.
 
 ## Layout
 
 ```
-analysis.py            the pipeline: load -> join -> validate -> clean -> analyse -> plot
-requirements.txt
-data/                  raw extracts, the original hand join, the generated dataset,
-                       and DATA_DICTIONARY.md
-figures/               eight charts, all regenerated by analysis.py
-tests/                 23 tests, mostly on the data-quality checks
+analysis.py            part 1: load -> join -> validate -> clean -> analyse -> plot
+fetch_worldbank.py     part 2: pull the 48-country panel from the API, cached
+panel_analysis.py      part 2: regressions and figures
+viz.py                 shared palette and chart chrome
+tests/                 pytest suite
+data/                  raw, generated, and documented
+figures/               twelve charts, all regenerated by the scripts above
 ```
