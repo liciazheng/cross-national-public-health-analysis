@@ -232,6 +232,70 @@ def test_regression_table_reports_every_spec():
     assert (table["coef"] <= table["ci_high"]).all()
 
 
+# --------------------------------------------------------------------------
+# Incidence
+# --------------------------------------------------------------------------
+
+def _incidence_panel():
+    """
+    Two countries built so the weighted and unweighted regional rates diverge
+    hard: a big country with a low rate and a small one with a high rate.
+    Weighted the region reads ~109 per 100k, unweighted it would read 550.
+    """
+    return pd.DataFrame([
+        {"country": "Big", "year": 2005, "population": 100_000_000,
+         "new_infections": 100_000, "new_infections_per_100k": 100.0},
+        {"country": "Small", "year": 2005, "population": 1_000_000,
+         "new_infections": 10_000, "new_infections_per_100k": 1000.0},
+        {"country": "Big", "year": 2022, "population": 100_000_000,
+         "new_infections": 50_000, "new_infections_per_100k": 50.0},
+        {"country": "Small", "year": 2022, "population": 1_000_000,
+         "new_infections": 15_000, "new_infections_per_100k": 1500.0},
+    ])
+
+
+def test_incidence_summary_weights_the_regional_rate_by_population():
+    """
+    The unweighted mean of country rates would let a country of 100k count as
+    much as one of 200m. The regional rate has to be total infections over
+    total population.
+    """
+    regional, _ = pa.incidence_summary(_incidence_panel())
+
+    assert regional.loc[2005, "rate_per_100k"] == pytest.approx(110_000 / 101_000_000 * 1e5)
+    assert regional.loc[2005, "rate_per_100k"] < 200  # nowhere near the 550 mean
+    assert regional.loc[2005, "median_country_rate"] == pytest.approx(550.0)
+
+
+def test_incidence_summary_reports_change_over_the_panel_span():
+    _, change = pa.incidence_summary(_incidence_panel())
+
+    assert change["Big"] == pytest.approx(-50.0)
+    assert change["Small"] == pytest.approx(50.0)
+    # Sorted ascending, so the steepest decline is first and risers are last.
+    assert list(change.index) == ["Big", "Small"]
+
+
+def test_incidence_summary_ignores_countries_missing_the_measure():
+    panel = _incidence_panel()
+    panel.loc[len(panel)] = {"country": "Nodata", "year": 2005, "population": 5_000_000,
+                             "new_infections": np.nan, "new_infections_per_100k": np.nan}
+
+    regional, change = pa.incidence_summary(panel)
+
+    assert "Nodata" not in change.index
+    assert regional.loc[2005, "countries"] == 2
+
+
+def test_worse_is_not_one_of_the_series_colours():
+    """
+    A status colour standing in for a country would make the diverging scale
+    unreadable. WORSE has to stay outside the categorical slots.
+    """
+    assert pa.viz.WORSE not in pa.viz.SERIES
+    assert pa.viz.WORSE not in pa.viz.FOCUS.values()
+
+
 def test_focus_countries_have_a_reserved_colour():
     """Figures across both analyses rely on a country keeping its hue."""
     for country in pa.FOCUS:

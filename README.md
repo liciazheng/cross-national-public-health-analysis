@@ -93,6 +93,22 @@ Hold prevalence and country fixed and the relationship inverts to **−0.025 per
 
 **These are associations, not causal estimates.** Fixed effects absorb anything constant within a country and the common time trend, but nothing here handles reverse causality (worsening epidemics attract funding) or omitted time-varying confounders such as donor programmes and health-system capacity.
 
+### New infections are falling, and prevalence cannot show it
+
+Part 1 noted that prevalence is a poor measure of progress: it counts people *living* with HIV, so treatment that keeps people alive pushes it up. Whether transmission is falling is a question only incidence can answer, and the panel carries it.
+
+![New infections across the region](figures/panel-incidence-all.png)
+
+The regional rate fell from **229 to 62 new infections per 100,000** between 2005 and 2022, a **73%** decline. The median country went from 148 to 42.
+
+The absolute count fell less steeply — 1.77 million new infections a year down to 752,000, or **−58%** — because the region's population grew **58%** over the same period. Both numbers are real and they answer different questions: the rate is the one to use for how well prevention is working, the count for how much treatment capacity the region has to fund.
+
+![Change in incidence by country](figures/panel-incidence-change.png)
+
+Incidence fell in **41 of 43** countries. The two exceptions are worth naming rather than averaging away: **Madagascar (+105%)** and **Sudan (+44%)**. Both started low, so the percentages overstate them — Madagascar went from 14.6 to 29.9 per 100,000, a rise of 15 infections per 100,000, against South Africa's fall of 641 over the same years. The percentage change and the absolute change rank these countries very differently, which is exactly why both charts above are here. But two countries are moving the wrong way while the region moves the right way, and a regional average hides that entirely.
+
+This section is descriptive. It establishes that transmission fell; it does **not** establish that treatment scale-up is why. Treatment suppresses viral load and should reduce onward transmission, but incidence also responds to condom promotion, voluntary medical male circumcision, PrEP, and changes in testing that shift when an infection gets counted. Separating those is not something this panel can do.
+
 ## Figures
 
 Part 1, three countries ([`analysis.py`](analysis.py)):
@@ -110,6 +126,7 @@ Part 2, the panel ([`panel_analysis.py`](panel_analysis.py)):
 |---|---|
 | [ART coverage, 44 countries](figures/panel-art-coverage-all.png) | [Coverage by income group](figures/panel-art-by-income.png) |
 | [Income coefficient by specification](figures/panel-income-coefficient.png) | [Coverage vs mortality, confounded](figures/panel-art-vs-mortality.png) |
+| [New infections, 43 countries](figures/panel-incidence-all.png) | [Change in incidence by country](figures/panel-incidence-change.png) |
 
 ## Data
 
