@@ -31,6 +31,11 @@ BASELINE = "#c3c2b7"
 # The recessive grey used for the un-highlighted mass in an emphasis chart.
 CONTEXT = "#c9c8c2"
 
+# Status, not a series. Reserved for "this moved the wrong way" and always
+# shipped with a label, so the meaning never rests on the colour alone. Kept
+# distinct from the categorical slots so it cannot be mistaken for a country.
+WORSE = "#d03b3b"
+
 
 def style():
     plt.rcParams.update({

@@ -107,6 +107,59 @@ def regression_table(specs, data, term, label):
     return table
 
 
+def incidence_summary(df):
+    """
+    Describe new HIV infections across the panel.
+
+    Incidence is the measure prevalence cannot stand in for. Prevalence counts
+    people living with HIV, so successful treatment pushes it *up* by keeping
+    people alive. Incidence counts new infections, so it is the one that says
+    whether transmission is actually falling.
+
+    Returns (regional, change): a per-year regional frame and the per-country
+    percentage change across the panel's span.
+    """
+    rows = df.dropna(subset=["new_infections", "new_infections_per_100k", "population"])
+
+    # Population-weighted regional rate, not the mean of the country rates:
+    # the region's 43 countries range from ~100k to ~200m people, so an
+    # unweighted mean would let Comoros count as much as Nigeria.
+    regional = rows.groupby("year").apply(
+        lambda g: pd.Series({
+            "new_infections": g["new_infections"].sum(),
+            "population": g["population"].sum(),
+            "rate_per_100k": g["new_infections"].sum() / g["population"].sum() * 1e5,
+            "median_country_rate": g["new_infections_per_100k"].median(),
+            "countries": g["country"].nunique(),
+        }),
+        include_groups=False,
+    )
+
+    wide = rows.pivot_table(index="country", columns="year",
+                            values="new_infections_per_100k")
+    first, last = int(rows["year"].min()), int(rows["year"].max())
+    change = ((wide[last] - wide[first]) / wide[first] * 100).dropna().sort_values()
+
+    a, b = regional.loc[first], regional.loc[last]
+    print(f"\nNew infections, {first}-{last}")
+    print("-" * 76)
+    print(f"  regional rate      {a.rate_per_100k:>8.1f} -> {b.rate_per_100k:>7.1f} per 100k "
+          f"({b.rate_per_100k / a.rate_per_100k - 1:+.0%})")
+    print(f"  absolute count   {a.new_infections:>10,.0f} -> {b.new_infections:>9,.0f} "
+          f"({b.new_infections / a.new_infections - 1:+.0%})")
+    print(f"  median country     {a.median_country_rate:>8.1f} -> "
+          f"{b.median_country_rate:>7.1f} per 100k")
+    print(f"  population       {a.population:>10,.0f} -> {b.population:>9,.0f} "
+          f"({b.population / a.population - 1:+.0%})")
+    print(f"\n  fell: {(change < 0).sum()}/{len(change)} countries      "
+          f"rose: {(change >= 0).sum()}/{len(change)}")
+    print(f"  steepest decline   {change.index[0]} ({change.iloc[0]:+.0f}%)")
+    for country, value in change[change >= 0].items():
+        print(f"  rose               {country} ({value:+.0f}%)")
+
+    return regional, change
+
+
 def between_within(data):
     """
     Split the income/coverage association into its two components.
@@ -173,6 +226,104 @@ def fig_coverage_spaghetti(df):
               fontsize=9, labelcolor=viz.INK_SECONDARY, handlelength=1.6,
               borderaxespad=0, columnspacing=2.4)
     return viz.save(fig, FIGURES / "panel-art-coverage-all.png")
+
+
+def fig_incidence_spaghetti(df, regional):
+    """
+    Regional incidence against the spread of individual countries.
+
+    Log scale: country rates span roughly 3 to 1,700 per 100k, and on a linear
+    axis the forty countries under 200 collapse onto the floor.
+    """
+    rows = df.dropna(subset=["new_infections_per_100k"])
+    fig, ax = plt.subplots(figsize=(9.5, 5.6))
+
+    for country, g in rows.groupby("country"):
+        if country in FOCUS:
+            continue
+        ax.plot(g["year"], g["new_infections_per_100k"], color=viz.CONTEXT,
+                linewidth=1, zorder=1)
+
+    for country in FOCUS:
+        g = rows[rows["country"] == country]
+        ax.plot(g["year"], g["new_infections_per_100k"], color=viz.FOCUS[country],
+                linewidth=2.2, label=country, zorder=3)
+        last = g.iloc[-1]
+        ax.annotate(f"  {country}  {last['new_infections_per_100k']:.0f}",
+                    xy=(last["year"], last["new_infections_per_100k"]),
+                    xytext=(6, 0), textcoords="offset points",
+                    va="center", fontsize=9, color=viz.INK_SECONDARY)
+
+    # The regional rate is population-weighted, so it is not the middle of the
+    # grey mass and should not be read as one of the countries.
+    ax.plot(regional.index, regional["rate_per_100k"], color=viz.INK,
+            linewidth=2.6, label="Region (population-weighted)", zorder=4)
+    last_year = int(regional.index.max())
+    ax.annotate(f"  Region  {regional.loc[last_year, 'rate_per_100k']:.0f}",
+                xy=(last_year, regional.loc[last_year, "rate_per_100k"]),
+                xytext=(6, 0), textcoords="offset points", va="center",
+                fontsize=9, fontweight="bold", color=viz.INK)
+
+    first_year = int(regional.index.min())
+    drop = regional.loc[last_year, "rate_per_100k"] / regional.loc[first_year, "rate_per_100k"] - 1
+
+    viz.frame(ax)
+    ax.set_yscale("log")
+    viz.titles(ax, "New HIV infections fell across the region",
+               f"New infections per 100,000 population, {int(rows['country'].nunique())} "
+               f"Sub-Saharan African countries. Regional rate {drop:+.0%} since {first_year}.")
+    ax.set_ylabel("New infections per 100,000 (log scale)")
+    ax.set_xlim(first_year - 0.3, last_year + 4.2)
+    ax.set_xticks(range(first_year, last_year + 1, 5))
+    ax.legend(frameon=False, loc="upper left", bbox_to_anchor=(0, -0.10), ncol=4,
+              fontsize=9, labelcolor=viz.INK_SECONDARY, handlelength=1.6,
+              borderaxespad=0, columnspacing=2.0)
+    return viz.save(fig, FIGURES / "panel-incidence-all.png")
+
+
+def fig_incidence_change(change):
+    """
+    Per-country change in incidence, sorted.
+
+    Colour encodes the sign, which is the only thing worth encoding here:
+    blue for a fall, red for a rise, against a neutral zero line. The
+    highlighted countries are marked by a heavier dot and a darker label rather
+    than a fourth hue, so the diverging scale stays intact.
+    """
+    fig, ax = plt.subplots(figsize=(8.6, 9.6))
+    y = np.arange(len(change))
+
+    ax.axvline(0, color=viz.BASELINE, linewidth=1.2, zorder=1)
+
+    for yi, (country, value) in zip(y, change.items()):
+        rose = value >= 0
+        color = viz.WORSE if rose else viz.SERIES[0]
+        focus = country in FOCUS
+        ax.plot([0, value], [yi, yi], color=viz.CONTEXT, linewidth=1.4,
+                solid_capstyle="butt", zorder=2)
+        ax.scatter(value, yi, s=95 if focus else 55, color=color,
+                   edgecolor=viz.SURFACE, linewidth=1.5, zorder=3)
+        ax.annotate(f"{value:+.0f}%",
+                    xy=(value, yi), xytext=(10 if rose else -10, 0),
+                    textcoords="offset points", va="center",
+                    ha="left" if rose else "right", fontsize=8.5,
+                    color=viz.INK if focus else viz.INK_MUTED)
+
+    fell, rose = int((change < 0).sum()), int((change >= 0).sum())
+    viz.frame(ax, axis="x")
+    viz.titles(ax, f"Incidence fell in {fell} of {fell + rose} countries",
+               "Change in new infections per 100,000, first to last year of the panel. "
+               "Highlighted countries carry a heavier dot.")
+    ax.set_yticks(y)
+    ax.set_yticklabels(change.index, fontsize=9)
+    for tick, country in zip(ax.get_yticklabels(), change.index):
+        tick.set_color(viz.INK if country in FOCUS else viz.INK_SECONDARY)
+        if country in FOCUS:
+            tick.set_fontweight("bold")
+    ax.set_xlabel("Change in incidence (%)")
+    ax.set_ylim(-0.8, len(change) - 0.2)
+    ax.margins(x=0.16)
+    return viz.save(fig, FIGURES / "panel-incidence-change.png")
 
 
 def fig_income_groups(df):
@@ -336,6 +487,7 @@ def main():
     regression_table(DEATH_SPECS, modelled, "art_coverage_pct",
                      "Does coverage predict mortality?  (outcome: log AIDS deaths per 100k)")
     between_within(modelled)
+    regional, change = incidence_summary(df)
 
     print("\n\nFIGURES")
     print("=" * 76)
@@ -346,6 +498,8 @@ def main():
         fig_income_groups(df),
         fig_coefficient_plot(art),
         fig_art_vs_mortality(modelled),
+        fig_incidence_spaghetti(df, regional),
+        fig_incidence_change(change),
     ]:
         print(f"  figures/{name}")
 
