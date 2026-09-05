@@ -169,6 +169,8 @@ def _panel(n_countries=6, years=range(2000, 2023), income_effect=0.0, seed=0):
                 # perfectly collinear with the country dummies under country FE.
                 "hiv_prevalence_pct": 5.0 + c - i * 0.05 + rng.normal(0, 0.1),
                 "aids_deaths_per_100k": 200.0 - i * 5,
+                # Also has to vary within a country, for the same reason.
+                "new_infections_per_100k": 150.0 - i * 4 + rng.normal(0, 0.5),
             })
     return pd.DataFrame(rows)
 
@@ -178,10 +180,11 @@ def test_load_filters_years_and_derives_logs(tmp_path, monkeypatch):
     monkeypatch.setattr(pa, "DATA", tmp_path)
     panel.to_csv(tmp_path / "worldbank_panel.csv", index=False)
 
-    df, modelled = pa.load()
+    df, modelled, incidence = pa.load()
 
     assert df["year"].min() == pa.START_YEAR
     assert "log_gdp" in modelled and "log_deaths" in modelled
+    assert "log_incidence" in incidence and "log_untreated" in incidence
     expected = np.log(modelled["gdp_per_capita_usd"].iloc[0])
     assert modelled["log_gdp"].iloc[0] == pytest.approx(expected)
 
@@ -193,7 +196,7 @@ def test_load_floors_zero_mortality_before_logging(tmp_path, monkeypatch):
     monkeypatch.setattr(pa, "DATA", tmp_path)
     panel.to_csv(tmp_path / "worldbank_panel.csv", index=False)
 
-    _, modelled = pa.load()
+    _, modelled, _ = pa.load()
 
     assert np.isfinite(modelled["log_deaths"]).all()
 
@@ -285,6 +288,49 @@ def test_incidence_summary_ignores_countries_missing_the_measure():
 
     assert "Nodata" not in change.index
     assert regional.loc[2005, "countries"] == 2
+
+
+def test_load_derives_the_untreated_reservoir(tmp_path, monkeypatch):
+    """
+    untreated_pct is prevalence times the share *not* on treatment — the
+    quantity the transmission story rests on. Getting the direction backwards
+    would flip the sign of the headline elasticity.
+    """
+    panel = _panel()
+    panel["hiv_prevalence_pct"] = 10.0
+    panel["art_coverage_pct"] = 75.0
+    monkeypatch.setattr(pa, "DATA", tmp_path)
+    panel.to_csv(tmp_path / "worldbank_panel.csv", index=False)
+
+    _, _, incidence = pa.load()
+
+    assert np.allclose(incidence["untreated_pct"], 2.5)
+    assert incidence["log_untreated"].iloc[0] == pytest.approx(np.log(2.5))
+
+
+def test_load_floors_a_fully_treated_country_before_logging(tmp_path, monkeypatch):
+    """100% coverage makes the reservoir exactly zero, and log(0) is -inf."""
+    panel = _panel()
+    panel.loc[panel.index[0], "art_coverage_pct"] = 100.0
+    monkeypatch.setattr(pa, "DATA", tmp_path)
+    panel.to_csv(tmp_path / "worldbank_panel.csv", index=False)
+
+    _, _, incidence = pa.load()
+
+    assert np.isfinite(incidence["log_untreated"]).all()
+
+
+def test_death_and_incidence_specs_are_the_same_ladder():
+    """
+    The comparison figure puts the two coefficients on one axis, which is only
+    honest if the specifications match. Only the outcome may differ.
+    """
+    assert list(pa.DEATH_SPECS) == list(pa.INCIDENCE_SPECS)
+    for name, death in pa.DEATH_SPECS.items():
+        incidence = pa.INCIDENCE_SPECS[name]
+        assert death.split("~", 1)[1] == incidence.split("~", 1)[1]
+        assert death.split("~")[0].strip() == "log_deaths"
+        assert incidence.split("~")[0].strip() == "log_incidence"
 
 
 def test_worse_is_not_one_of_the_series_colours():

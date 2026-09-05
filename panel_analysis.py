@@ -34,6 +34,10 @@ INCOME_ORDER = ["Low income", "Lower middle income", "Upper middle income"]
 MODELLED = ["art_coverage_pct", "gdp_per_capita_usd", "hiv_prevalence_pct",
             "aids_deaths_per_100k"]
 
+# The incidence models drop a few more country-years, so they get their own
+# complete-case set rather than shrinking every other regression to match.
+INCIDENCE_MODELLED = MODELLED + ["new_infections_per_100k"]
+
 
 def load():
     path = DATA / "worldbank_panel.csv"
@@ -49,7 +53,19 @@ def load():
     # 100k, and log(0) would silently drop them.
     modelled["log_deaths"] = np.log(modelled["aids_deaths_per_100k"].clip(lower=0.01))
 
-    return df, modelled
+    incidence = df.dropna(subset=INCIDENCE_MODELLED).copy()
+    incidence["log_gdp"] = np.log(incidence["gdp_per_capita_usd"])
+    incidence["log_deaths"] = np.log(incidence["aids_deaths_per_100k"].clip(lower=0.01))
+    incidence["log_incidence"] = np.log(incidence["new_infections_per_100k"].clip(lower=0.01))
+    # Share of the whole population living with HIV and *not* on treatment.
+    # Transmission comes from unsuppressed virus, so this is the quantity the
+    # epidemiology says should drive new infections — not coverage on its own.
+    incidence["untreated_pct"] = (
+        incidence["hiv_prevalence_pct"] * (1 - incidence["art_coverage_pct"] / 100)
+    )
+    incidence["log_untreated"] = np.log(incidence["untreated_pct"].clip(lower=0.001))
+
+    return df, modelled, incidence
 
 
 # --------------------------------------------------------------------------
@@ -75,6 +91,25 @@ DEATH_SPECS = {
     "+ prevalence + income": "log_deaths ~ art_coverage_pct + hiv_prevalence_pct + log_gdp",
     "+ year & country FE": ("log_deaths ~ art_coverage_pct + hiv_prevalence_pct "
                             "+ log_gdp + C(year) + C(country)"),
+}
+
+# Same ladder, same regressors, outcome swapped from deaths to new infections.
+# Keeping the specifications identical is what makes the two coefficients
+# comparable: they are log points of outcome per percentage point of coverage.
+INCIDENCE_SPECS = {
+    "ART only": "log_incidence ~ art_coverage_pct",
+    "+ prevalence + income": "log_incidence ~ art_coverage_pct + hiv_prevalence_pct + log_gdp",
+    "+ year & country FE": ("log_incidence ~ art_coverage_pct + hiv_prevalence_pct "
+                            "+ log_gdp + C(year) + C(country)"),
+}
+
+# The mechanism restated: instead of coverage, the size of the untreated
+# reservoir. An elasticity near 1 would mean incidence scales proportionally
+# with the number of people carrying unsuppressed virus.
+UNTREATED_SPECS = {
+    "untreated only": "log_incidence ~ log_untreated",
+    "+ income": "log_incidence ~ log_untreated + log_gdp",
+    "+ year & country FE": "log_incidence ~ log_untreated + log_gdp + C(year) + C(country)",
 }
 
 
@@ -326,6 +361,125 @@ def fig_incidence_change(change):
     return viz.save(fig, FIGURES / "panel-incidence-change.png")
 
 
+def fig_outcome_comparison(deaths, incidence):
+    """
+    The same coefficient, two outcomes.
+
+    Both models regress a log outcome on percentage points of ART coverage
+    with identical controls, so the coefficients sit on one scale and can be
+    read against each other: how much does a point of coverage buy in lives
+    versus in infections averted?
+    """
+    fig, ax = plt.subplots(figsize=(9.2, 4.8))
+    specs = list(deaths["spec"])
+    y = np.arange(len(specs))[::-1]
+    offset = 0.16
+
+    series = [("AIDS deaths", deaths, viz.SERIES[0], +offset),
+              ("New infections", incidence, viz.SERIES[1], -offset)]
+
+    ax.axvline(0, color=viz.BASELINE, linewidth=1.2, zorder=1)
+    for label, table, color, dy in series:
+        for yi, (_, r) in zip(y, table.iterrows()):
+            faded = r.p >= 0.05
+            ax.plot([r.ci_low, r.ci_high], [yi + dy, yi + dy],
+                    color=viz.CONTEXT if faded else color, linewidth=2,
+                    solid_capstyle="butt", zorder=2)
+            ax.scatter(r.coef, yi + dy, s=85,
+                       color=viz.CONTEXT if faded else color,
+                       edgecolor=viz.SURFACE, linewidth=1.5, zorder=3)
+            ax.annotate(f"  {r.coef:+.3f}" + ("  (n.s.)" if faded else ""),
+                        xy=(r.ci_high, yi + dy), xytext=(8, 0),
+                        textcoords="offset points", va="center", fontsize=8.5,
+                        color=viz.INK_SECONDARY)
+
+    viz.frame(ax, axis="x")
+    viz.titles(ax, "Treatment tracks fewer deaths more strongly than fewer infections",
+               "Effect of one percentage point of ART coverage on each log outcome, "
+               "same controls, 95% CIs clustered by country.")
+    ax.set_yticks(y)
+    ax.set_yticklabels(specs)
+    ax.set_xlabel("Log points of outcome per percentage point of coverage")
+    ax.set_ylim(-0.6, len(specs) - 0.4)
+    ax.margins(x=0.24)
+    # Proxy handles: the first row plotted is the non-significant spec, so
+    # letting the legend pick up a real marker would show two grey dots.
+    handles = [plt.scatter([], [], s=85, color=color, edgecolor=viz.SURFACE,
+                           linewidth=1.5, label=label)
+               for label, _, color, _ in series]
+    ax.legend(handles=handles, frameon=False, loc="upper left",
+              bbox_to_anchor=(0, -0.16), ncol=2, fontsize=9,
+              labelcolor=viz.INK_SECONDARY, handlelength=1.2,
+              borderaxespad=0, columnspacing=2.4)
+    return viz.save(fig, FIGURES / "panel-incidence-coefficient.png")
+
+
+def fig_prevalence_vs_incidence(df):
+    """
+    Why prevalence is the wrong scoreboard.
+
+    Both measures indexed to the first year, so the two lines answer the same
+    question — how much has this changed? — and disagree. Prevalence is a
+    stock that treatment inflates by keeping people alive; incidence is the
+    flow that says whether transmission is falling.
+
+    The right panel is South Africa, where the two measures do not merely
+    diverge in size but point in opposite directions.
+    """
+    rows = df.dropna(subset=["hiv_prevalence_pct", "new_infections_per_100k"])
+    first = int(rows["year"].min())
+
+    regional = rows.groupby("year")[["hiv_prevalence_pct", "new_infections_per_100k"]].median()
+    south_africa = (rows[rows["country"] == "South Africa"]
+                    .set_index("year")[["hiv_prevalence_pct", "new_infections_per_100k"]])
+
+    panels = [
+        (regional, f"All {rows['country'].nunique()} countries", "median across countries"),
+        (south_africa, "South Africa", "the sharpest case"),
+    ]
+    # Prevalence in neutral ink, incidence in the series hue: the chart argues
+    # that one of these lines is the one to watch.
+    measures = [
+        ("hiv_prevalence_pct", "Prevalence", viz.INK_SECONDARY),
+        ("new_infections_per_100k", "New infections", viz.SERIES[0]),
+    ]
+
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4.8), sharey=True)
+
+    for ax, (data, title, note) in zip(axes, panels):
+        ax.axhline(100, color=viz.BASELINE, linewidth=1.2, zorder=1)
+        for col, label, color in measures:
+            indexed = data[col] / data[col].loc[first] * 100
+            ax.plot(indexed.index, indexed, color=color, linewidth=2.2,
+                    label=label, zorder=3, clip_on=False)
+            last = indexed.index.max()
+            ax.annotate(f"  {indexed.loc[last]:.0f}",
+                        xy=(last, indexed.loc[last]), xytext=(5, 0),
+                        textcoords="offset points", va="center", fontsize=9,
+                        fontweight="bold", color=color)
+
+        viz.frame(ax)
+        ax.set_title(title, fontsize=11, pad=26)
+        ax.text(0, 1.01, note, transform=ax.transAxes, fontsize=9,
+                color=viz.INK_SECONDARY, va="bottom")
+        ax.set_xlim(first - 0.3, int(data.index.max()) + 2.6)
+        ax.set_xticks(range(first, int(data.index.max()) + 1, 5))
+        ax.set_ylim(0, 130)
+
+    axes[0].set_ylabel(f"Index, {first} = 100")
+    fig.suptitle("Prevalence understates progress, and can invert it",
+                 x=0.008, y=1.13, ha="left", va="bottom",
+                 fontsize=14, fontweight="bold", color=viz.INK)
+    fig.text(0.008, 1.04,
+             "HIV prevalence and new infections, each indexed to its own "
+             f"{first} level. A line below 100 has improved.",
+             ha="left", va="bottom", fontsize=10, color=viz.INK_SECONDARY)
+    axes[0].legend(frameon=False, loc="upper left", bbox_to_anchor=(0, -0.12),
+                   ncol=2, fontsize=9, labelcolor=viz.INK_SECONDARY,
+                   handlelength=1.6, borderaxespad=0, columnspacing=2.4)
+    return viz.save(fig, FIGURES / "panel-prevalence-vs-incidence.png")
+
+
 def fig_income_groups(df):
     """
     One dot per country, grouped by World Bank income level, latest year with
@@ -473,7 +627,7 @@ def fig_art_vs_mortality(modelled):
 # --------------------------------------------------------------------------
 
 def main():
-    df, modelled = load()
+    df, modelled, incidence = load()
 
     print("SUB-SAHARAN AFRICA PANEL")
     print("=" * 76)
@@ -481,13 +635,25 @@ def main():
     print(f"  years:                     {df['year'].min()}-{df['year'].max()}")
     print(f"  country-years modelled:    {len(modelled)} "
           f"({modelled['country'].nunique()} countries with all four measures)")
+    print(f"  with incidence too:        {len(incidence)} "
+          f"({incidence['country'].nunique()} countries)")
 
     art = regression_table(ART_SPECS, modelled, "log_gdp",
                            "Does income predict ART coverage?  (outcome: ART coverage, pp)")
-    regression_table(DEATH_SPECS, modelled, "art_coverage_pct",
-                     "Does coverage predict mortality?  (outcome: log AIDS deaths per 100k)")
     between_within(modelled)
     regional, change = incidence_summary(df)
+
+    # Both outcomes on the incidence sample, so the two coefficients are
+    # estimated on exactly the same country-years and can be compared.
+    deaths_tbl = regression_table(
+        DEATH_SPECS, incidence, "art_coverage_pct",
+        "Does coverage predict mortality?  (outcome: log AIDS deaths per 100k)")
+    incidence_tbl = regression_table(
+        INCIDENCE_SPECS, incidence, "art_coverage_pct",
+        "Does coverage predict transmission?  (outcome: log new infections per 100k)")
+    regression_table(
+        UNTREATED_SPECS, incidence, "log_untreated",
+        "Does the untreated reservoir predict transmission?  (elasticity)")
 
     print("\n\nFIGURES")
     print("=" * 76)
@@ -500,6 +666,8 @@ def main():
         fig_art_vs_mortality(modelled),
         fig_incidence_spaghetti(df, regional),
         fig_incidence_change(change),
+        fig_outcome_comparison(deaths_tbl, incidence_tbl),
+        fig_prevalence_vs_incidence(df),
     ]:
         print(f"  figures/{name}")
 
