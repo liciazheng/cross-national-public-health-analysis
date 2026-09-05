@@ -79,9 +79,11 @@ Outcome is log AIDS deaths per 100,000; the coefficient is on one percentage poi
 
 | Specification | Coefficient | 95% CI | p | R² |
 |---|---|---|---|---|
-| ART coverage only | −0.005 | [−0.014, +0.004] | 0.296 | 0.010 |
-| + prevalence + income | **−0.014** | [−0.020, −0.009] | <0.001 | 0.599 |
-| + year & country fixed effects | **−0.025** | [−0.032, −0.017] | <0.001 | 0.985 |
+| ART coverage only | −0.005 | [−0.014, +0.005] | 0.335 | 0.009 |
+| + prevalence + income | **−0.014** | [−0.020, −0.009] | <0.001 | 0.600 |
+| + year & country fixed effects | **−0.025** | [−0.032, −0.018] | <0.001 | 0.985 |
+
+Fitted on the 753 country-years that also carry an incidence figure, so these coefficients can be set against the transmission models below without the sample changing underneath them.
 
 The naive specification finds nothing, and the reason is visible in the data:
 
@@ -107,7 +109,57 @@ The absolute count fell less steeply — 1.77 million new infections a year down
 
 Incidence fell in **41 of 43** countries. The two exceptions are worth naming rather than averaging away: **Madagascar (+105%)** and **Sudan (+44%)**. Both started low, so the percentages overstate them — Madagascar went from 14.6 to 29.9 per 100,000, a rise of 15 infections per 100,000, against South Africa's fall of 641 over the same years. The percentage change and the absolute change rank these countries very differently, which is exactly why both charts above are here. But two countries are moving the wrong way while the region moves the right way, and a regional average hides that entirely.
 
-This section is descriptive. It establishes that transmission fell; it does **not** establish that treatment scale-up is why. Treatment suppresses viral load and should reduce onward transmission, but incidence also responds to condom promotion, voluntary medical male circumcision, PrEP, and changes in testing that shift when an infection gets counted. Separating those is not something this panel can do.
+### How badly does prevalence mislead? By a factor of about 2.5
+
+Index both measures to their own 2005 level and the disagreement is direct.
+
+![Prevalence against incidence](figures/panel-prevalence-vs-incidence.png)
+
+Across the region the median country's prevalence fell to **73** on that index while its incidence fell to **29**. Track prevalence and you would conclude the epidemic shrank by about a quarter. Track incidence and it shrank by more than two thirds.
+
+South Africa is the case where the two measures do not merely disagree in size but point in opposite directions. Its prevalence **rose 11%** over the period — peaking around 16% above its 2005 level — while new infections **fell 69%**. Both are correct. Prevalence rose because antiretroviral therapy kept people alive who would previously have died, which is the *success* showing up as a worse-looking number.
+
+Three of the 43 countries show that inversion:
+
+| Country | Prevalence | New infections |
+|---|---|---|
+| Cabo Verde | +29% | −63% |
+| South Africa | +11% | −69% |
+| Mozambique | +11% | −57% |
+
+This is why Part 1's prevalence-based framing was the weakest thing in it, and it is not a subtle effect at the margin — it is large enough to reverse the sign of the headline for the country with the world's largest epidemic.
+
+### Does treatment explain the fall in transmission? Partly
+
+Same ladder of specifications as the mortality models, same controls, same 753 country-years — only the outcome changes. That makes the two coefficients directly comparable.
+
+![Mortality against incidence coefficients](figures/panel-incidence-coefficient.png)
+
+| Specification | AIDS deaths | New infections |
+|---|---|---|
+| ART coverage only | −0.005 (n.s.) | −0.002 (n.s.) |
+| + prevalence + income | **−0.014** | **−0.014** |
+| + year & country fixed effects | **−0.025** | **−0.014** |
+
+Under full fixed effects, one percentage point of ART coverage is associated with **1.4% fewer new infections** (p<0.001) — about 13% for a ten-point gain. So the answer is yes, treatment tracks lower transmission, not only lower mortality.
+
+But it tracks mortality roughly **1.8× more strongly** (−0.025 against −0.014). That ordering is what the biology would predict: treatment prevents death in the person taking it directly and immediately, whereas preventing transmission depends on sustained viral suppression and on who that person's partners are.
+
+Restating the mechanism sharpens it. Transmission should come not from coverage as such but from the **untreated reservoir** — the share of the population living with HIV and *not* on treatment, `prevalence × (1 − coverage)`:
+
+| Specification | Elasticity | 95% CI | R² |
+|---|---|---|---|
+| Untreated reservoir only | **+0.92** | [+0.83, +1.00] | 0.908 |
+| + income | +0.89 | [+0.80, +0.98] | 0.922 |
+| + year & country fixed effects | +0.62 | [+0.51, +0.72] | 0.985 |
+
+A single variable explains **91%** of the variation in log incidence, at an elasticity statistically indistinguishable from **1.0** — incidence scales very nearly in proportion to the untreated population. That is what a simple transmission model predicts, and it is a much tighter fit than coverage alone achieves.
+
+**Two reasons not to read that as causal, one of them serious.**
+
+The ordinary caveat: incidence also responds to condom promotion, voluntary medical male circumcision, PrEP, and changes in testing that shift when an infection gets counted. None of those are in the model, and all of them scaled up over the same years as treatment did.
+
+The serious one: **these HIV series are modelled estimates, not counts.** UNAIDS derives national incidence with an epidemic model, and that model takes ART coverage as an input. Regressing modelled incidence on ART coverage therefore partly recovers the model's own assumptions rather than an independent empirical relationship. The near-unit elasticity on the untreated reservoir is exactly the kind of result that should raise this suspicion — real-world data is rarely that clean. Testing it properly would need incidence measured independently of the model, for example from cohort studies or recency assays, which is outside what this panel contains.
 
 ## Figures
 
@@ -127,6 +179,7 @@ Part 2, the panel ([`panel_analysis.py`](panel_analysis.py)):
 | [ART coverage, 44 countries](figures/panel-art-coverage-all.png) | [Coverage by income group](figures/panel-art-by-income.png) |
 | [Income coefficient by specification](figures/panel-income-coefficient.png) | [Coverage vs mortality, confounded](figures/panel-art-vs-mortality.png) |
 | [New infections, 43 countries](figures/panel-incidence-all.png) | [Change in incidence by country](figures/panel-incidence-change.png) |
+| [Prevalence against incidence](figures/panel-prevalence-vs-incidence.png) | [Mortality vs incidence coefficients](figures/panel-incidence-coefficient.png) |
 
 ## Data
 
