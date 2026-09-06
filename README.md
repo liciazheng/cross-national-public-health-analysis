@@ -161,6 +161,39 @@ The ordinary caveat: incidence also responds to condom promotion, voluntary medi
 
 The serious one: **these HIV series are modelled estimates, not counts.** UNAIDS derives national incidence with an epidemic model, and that model takes ART coverage as an input. Regressing modelled incidence on ART coverage therefore partly recovers the model's own assumptions rather than an independent empirical relationship. The near-unit elasticity on the untreated reservoir is exactly the kind of result that should raise this suspicion — real-world data is rarely that clean. Testing it properly would need incidence measured independently of the model, for example from cohort studies or recency assays, which is outside what this panel contains.
 
+### Did PMTCT programmes converge? No — that was selection
+
+The original three-country write-up ended on PMTCT: South Africa, Kenya and Botswana all reached 87–93% coverage by 2016 from very different starting points, which it read as evidence that focused programmes converge regardless of national income. It is the one conclusion from Part 1 that survived the data audit intact, and it is wrong anyway — not because the numbers were bad, but because three countries cannot demonstrate convergence. Only agreement among three.
+
+Convergence is a claim about **dispersion**, so the panel can test it directly.
+
+![PMTCT coverage spread](figures/panel-pmtct-spread.png)
+
+| Year | Median | SD | IQR | p10 | p90 |
+|---|---|---|---|---|---|
+| 2005 | 5% | 14.4 | 14 | 0% | 26% |
+| 2010 | 34% | 25.9 | 40 | 8% | 73% |
+| 2016 | 79% | **30.8** | **41** | 17% | 100% |
+| 2022 | 83% | 24.9 | 30 | 36% | 97% |
+
+The spread **more than doubled** during the scale-up. Coverage in 2005 was tightly clustered only because almost nobody had a programme — median 5%, so the low dispersion is a floor effect, not agreement. As countries built PMTCT services they did so at wildly different speeds, and the distribution fanned out. It has narrowed since 2018, but 2022 is still twice as dispersed as 2005.
+
+And the 87–93% band was not where the region landed. In 2016 only **9 of 41** countries were inside it. The three Part 1 countries sat at the **59th to 73rd percentile** — better than most, but not the top, and certainly not a point of convergence:
+
+| Country | 2016 | Percentile |
+|---|---|---|
+| South Africa | 93% | 73rd |
+| Kenya | 92% | 71st |
+| Botswana | 87% | 59th |
+
+Seven countries were still under 50% in 2022: **Sudan (8%)**, Madagascar (18%), Congo Rep. (23%), Mauritania (29%), DR Congo (36%), Niger (38%), Mali (43%).
+
+**Those first two names should look familiar.** Sudan and Madagascar are the only two countries in the panel where new infections *rose*, and they rank **1st and 2nd from the bottom** on PMTCT coverage. Across the 40 countries with both measures, PMTCT coverage and the change in incidence correlate at **−0.62**: the countries that built prevention services saw transmission fall, and the two that did not are the two going backwards.
+
+Read that as a consistency check rather than an estimate. PMTCT coverage is a proxy for how functional a country's HIV programme is overall, not an isolated cause — a country that fails at PMTCT is generally failing at testing, treatment and prevention too, and 40 countries is not many. The value here is that two independent measures point at the same two countries.
+
+One measurement caveat: coverage is capped at 100% in the source, and three countries sit exactly there in 2022. That compresses the top of the distribution, which if anything makes the spread look *narrower* than it is.
+
 ## Figures
 
 Part 1, three countries ([`analysis.py`](analysis.py)):
@@ -180,6 +213,7 @@ Part 2, the panel ([`panel_analysis.py`](panel_analysis.py)):
 | [Income coefficient by specification](figures/panel-income-coefficient.png) | [Coverage vs mortality, confounded](figures/panel-art-vs-mortality.png) |
 | [New infections, 43 countries](figures/panel-incidence-all.png) | [Change in incidence by country](figures/panel-incidence-change.png) |
 | [Prevalence against incidence](figures/panel-prevalence-vs-incidence.png) | [Mortality vs incidence coefficients](figures/panel-incidence-coefficient.png) |
+| [PMTCT coverage spread](figures/panel-pmtct-spread.png) | |
 
 ## Data
 
