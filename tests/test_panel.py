@@ -333,6 +333,63 @@ def test_death_and_incidence_specs_are_the_same_ladder():
         assert incidence.split("~")[0].strip() == "log_incidence"
 
 
+# --------------------------------------------------------------------------
+# PMTCT convergence
+# --------------------------------------------------------------------------
+
+def _pmtct_panel(values_by_year):
+    """values_by_year: {year: [coverage per country]}."""
+    rows = [
+        {"country": f"Country {i}", "year": year, "pmtct_coverage_pct": v}
+        for year, values in values_by_year.items()
+        for i, v in enumerate(values)
+    ]
+    return pd.DataFrame(rows)
+
+
+def test_pmtct_convergence_measures_spread_not_just_level():
+    """
+    A rising median with a widening spread is the case Part 1's three-country
+    reading got wrong, so the summary has to report dispersion separately from
+    the average.
+    """
+    panel = _pmtct_panel({
+        2005: [0, 5, 10, 15, 20],
+        2016: [0, 25, 50, 75, 100],
+    })
+
+    spread, latest = pa.pmtct_convergence(panel)
+
+    assert spread.loc[2005, "median"] == 10
+    assert spread.loc[2016, "median"] == 50
+    # Level rose, and so did the spread.
+    assert spread.loc[2016, "sd"] > spread.loc[2005, "sd"]
+    assert spread.loc[2016, "iqr"] > spread.loc[2005, "iqr"]
+    assert len(latest) == 5
+
+
+def test_pmtct_convergence_detects_a_genuinely_converging_panel():
+    """The mirror case: if programmes really did converge, spread must fall."""
+    panel = _pmtct_panel({
+        2005: [10, 30, 50, 70, 90],
+        2016: [86, 88, 90, 92, 94],
+    })
+
+    spread, _ = pa.pmtct_convergence(panel)
+
+    assert spread.loc[2016, "sd"] < spread.loc[2005, "sd"]
+    assert spread.loc[2016, "iqr"] < spread.loc[2005, "iqr"]
+
+
+def test_pmtct_iqr_is_the_quartile_gap():
+    panel = _pmtct_panel({2005: [0, 25, 50, 75, 100], 2016: [0, 25, 50, 75, 100]})
+
+    spread, _ = pa.pmtct_convergence(panel)
+
+    row = spread.loc[2016]
+    assert row["iqr"] == pytest.approx(row["p75"] - row["p25"])
+
+
 def test_worse_is_not_one_of_the_series_colours():
     """
     A status colour standing in for a country would make the diverging scale

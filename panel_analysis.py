@@ -31,6 +31,11 @@ START_YEAR = 2005
 FOCUS = ["South Africa", "Kenya", "Botswana"]
 INCOME_ORDER = ["Low income", "Lower middle income", "Upper middle income"]
 
+# The claim from Part 1 being re-tested: three countries inside 87-93% by 2016,
+# read at the time as evidence that programmes converge.
+PART1_YEAR = 2016
+PART1_BAND = (87, 93)
+
 MODELLED = ["art_coverage_pct", "gdp_per_capita_usd", "hiv_prevalence_pct",
             "aids_deaths_per_100k"]
 
@@ -193,6 +198,70 @@ def incidence_summary(df):
         print(f"  rose               {country} ({value:+.0f}%)")
 
     return regional, change
+
+
+def pmtct_convergence(df):
+    """
+    Test Part 1's convergence claim against the whole region.
+
+    Part 1 saw three countries land within 87-93% by 2016 and read that as
+    programmes converging. Three countries cannot show convergence, only
+    agreement among three. The panel can: if programmes really converged, the
+    spread across countries has to narrow.
+
+    Returns (spread, latest): dispersion by year, and the last year's values.
+    """
+    rows = df.dropna(subset=["pmtct_coverage_pct"])
+
+    spread = rows.groupby("year")["pmtct_coverage_pct"].agg(
+        n="count", median="median", mean="mean", sd="std",
+        p10=lambda s: s.quantile(0.10),
+        p25=lambda s: s.quantile(0.25),
+        p75=lambda s: s.quantile(0.75),
+        p90=lambda s: s.quantile(0.90),
+    )
+    spread["iqr"] = spread["p75"] - spread["p25"]
+
+    first, last = int(spread.index.min()), int(spread.index.max())
+    latest = rows[rows["year"] == last].set_index("country")["pmtct_coverage_pct"]
+
+    print(f"\nPMTCT coverage: did programmes converge?  ({len(latest)} countries)")
+    print("-" * 76)
+    print(f"  {'year':<6}{'median':>8}{'sd':>7}{'IQR':>7}{'p10':>6}{'p90':>6}")
+    # Milestones drawn from the years actually present, so a shorter panel
+    # reports fewer rows rather than raising.
+    milestones = sorted({first, *(y for y in (2010, PART1_YEAR) if y in spread.index), last})
+    for year in milestones:
+        r = spread.loc[year]
+        print(f"  {year:<6}{r['median']:>8.0f}{r['sd']:>7.1f}{r['iqr']:>7.0f}"
+              f"{r['p10']:>6.0f}{r['p90']:>6.0f}")
+
+    a, b = spread.loc[first], spread.loc[last]
+    verdict = "narrowed" if b["sd"] < a["sd"] else "widened"
+    print(f"\n  spread {verdict}: sd {a['sd']:.1f} -> {b['sd']:.1f}, "
+          f"IQR {a['iqr']:.0f} -> {b['iqr']:.0f}")
+    print(f"  NB {first} dispersion is a floor effect - median coverage was "
+          f"{a['median']:.0f}%, so countries agreed only in having no programme.")
+
+    if PART1_YEAR in spread.index:
+        year_rows = rows[rows["year"] == PART1_YEAR]
+        band = year_rows["pmtct_coverage_pct"].between(*PART1_BAND).sum()
+        print(f"\n  in Part 1's {PART1_BAND[0]}-{PART1_BAND[1]}% band in {PART1_YEAR}: "
+              f"{band}/{len(year_rows)} countries")
+        for country in FOCUS:
+            value = year_rows[year_rows["country"] == country]["pmtct_coverage_pct"]
+            if value.empty:
+                continue
+            v = value.iloc[0]
+            pct = (year_rows["pmtct_coverage_pct"] < v).mean() * 100
+            print(f"    {country:<14} {v:>3.0f}% in {PART1_YEAR} = {pct:.0f}th percentile")
+
+    laggards = latest[latest < 50].sort_values()
+    print(f"\n  still under 50% in {last}: {len(laggards)} countries")
+    for country, value in laggards.items():
+        print(f"    {country:<20} {value:>3.0f}%")
+
+    return spread, latest
 
 
 def between_within(data):
@@ -480,6 +549,55 @@ def fig_prevalence_vs_incidence(df):
     return viz.save(fig, FIGURES / "panel-prevalence-vs-incidence.png")
 
 
+def fig_pmtct_fan(df, spread):
+    """
+    The distribution behind Part 1's convergence claim.
+
+    Nested quantile bands in one neutral ramp carry the spread, so the three
+    categorical hues stay free for the countries Part 1 actually looked at.
+    Convergence would show as the bands closing; they do the opposite.
+    """
+    rows = df.dropna(subset=["pmtct_coverage_pct"])
+    years = spread.index
+
+    fig, ax = plt.subplots(figsize=(9.5, 5.6))
+
+    # Sequential, one hue, light to dark - the outer band is the wider claim.
+    ax.fill_between(years, spread["p10"], spread["p90"], color="#e4e3dd",
+                    linewidth=0, zorder=1, label="10th–90th percentile")
+    ax.fill_between(years, spread["p25"], spread["p75"], color="#c9c8c2",
+                    linewidth=0, zorder=2, label="Interquartile range")
+    ax.plot(years, spread["median"], color=viz.INK, linewidth=2.4,
+            zorder=5, label="Median country")
+
+    for country in FOCUS:
+        g = rows[rows["country"] == country]
+        if g.empty:
+            continue
+        ax.plot(g["year"], g["pmtct_coverage_pct"], color=viz.FOCUS[country],
+                linewidth=2, zorder=6, label=country)
+        last = g.iloc[-1]
+        ax.annotate(f"  {country}  {last['pmtct_coverage_pct']:.0f}%",
+                    xy=(last["year"], last["pmtct_coverage_pct"]),
+                    xytext=(6, 0), textcoords="offset points", va="center",
+                    fontsize=9, color=viz.INK_SECONDARY)
+
+    first, last_year = int(years.min()), int(years.max())
+    viz.frame(ax)
+    viz.titles(ax, "PMTCT programmes diverged, they did not converge",
+               f"Coverage across {int(spread.loc[last_year, 'n'])} Sub-Saharan African "
+               f"countries. The spread widens as countries scale up at "
+               f"different speeds.")
+    ax.set_ylabel("PMTCT coverage (%)")
+    ax.set_xlim(first - 0.3, last_year + 4.6)
+    ax.set_xticks(range(first, last_year + 1, 5))
+    ax.set_ylim(0, 105)
+    ax.legend(frameon=False, loc="upper left", bbox_to_anchor=(0, -0.10), ncol=3,
+              fontsize=9, labelcolor=viz.INK_SECONDARY, handlelength=1.6,
+              borderaxespad=0, columnspacing=2.0)
+    return viz.save(fig, FIGURES / "panel-pmtct-spread.png")
+
+
 def fig_income_groups(df):
     """
     One dot per country, grouped by World Bank income level, latest year with
@@ -642,6 +760,20 @@ def main():
                            "Does income predict ART coverage?  (outcome: ART coverage, pp)")
     between_within(modelled)
     regional, change = incidence_summary(df)
+    spread, pmtct_latest = pmtct_convergence(df)
+
+    # The two countries whose incidence rose are also the two worst on PMTCT.
+    rose = change[change >= 0].index
+    linked = pmtct_latest.reindex(rose).dropna()
+    if not linked.empty:
+        rank = pmtct_latest.rank()
+        print(f"\n  countries whose incidence rose, ranked on PMTCT "
+              f"(1 = lowest of {len(pmtct_latest)}):")
+        for country, value in linked.items():
+            print(f"    {country:<20} {value:>3.0f}%   rank {int(rank[country])}")
+        aligned = pd.DataFrame({"pmtct": pmtct_latest, "change": change}).dropna()
+        print(f"  corr(PMTCT, incidence change) = "
+              f"{aligned['pmtct'].corr(aligned['change']):+.2f} over {len(aligned)} countries")
 
     # Both outcomes on the incidence sample, so the two coefficients are
     # estimated on exactly the same country-years and can be compared.
@@ -668,6 +800,7 @@ def main():
         fig_incidence_change(change),
         fig_outcome_comparison(deaths_tbl, incidence_tbl),
         fig_prevalence_vs_incidence(df),
+        fig_pmtct_fan(df, spread),
     ]:
         print(f"  figures/{name}")
 
